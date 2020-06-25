@@ -106,6 +106,7 @@ Selecionar a opção de EC2 Linux + Networking que é o objetivo desta seção.
 Escolher o nome do cluster conforme desejado no campo Cluster name;
 
 #### Instance configuration
+
 - Para o teste, utilizar On-Demand Instance para evitar falhas não desejadas;
 - Escolher o EC2 instance type (para fins de teste, t2.micro que faz parte do plano gratuito atende muito bem);
 - Número de instâncias no cluster;
@@ -115,11 +116,7 @@ Escolher o nome do cluster conforme desejado no campo Cluster name;
 
 #### Networking
 
-Aqui será possível criar uma nova VPC para este cluster, porém, para testes, pode ser utilizada a VPC criada automaticamente ao ter sido criado o ECS cluster com o Fargate através do Getting Started.
-
-- Selecionar a VPC criada anteriormente (normalmente com o nome ECS default);
-- Selecionar as duas Subnets;
-- Selecionar o Security Group criado anteriormente automaticamente (normalmente o nome será *-default-EcsSecurityGroup).
+- Selecione a criação de uma nova VPC.
 
 Agora basta selecionar Create para criar toda o ECS cluster com as instâncias EC2.
 
@@ -134,7 +131,7 @@ Em seguida, já é possível também testar se o cluster está escalonando corre
 
 Para verificar o Auto Scaling Group, acesse o menu EC2 e em seguinda no menu lateral acessar o Auto Scaling Groups. Então será possível ver a definição da quantidade de instância desejada, em execução, e também aqui é possível escalar o cluster com mais instâncias conforme necessário.
 
-## Escalando o cluster com CLI
+## Escalando o cluster
 
 Para escalar o cluster conforme desejado, é possível alterar através do Amazon Console conforme o passo anterior, ou através do CLI.
 
@@ -206,3 +203,55 @@ Clicando no botão `Create rule`, após preencher os dados de identificação da
 
 Com isso, imagens que tenham o prefixo `dev` e tenha mais que duas imagens, quando a regra for executada, as imagens mais antigas serão excluídas automaticamente. Simples e muito prático.
 
+## Criando as tasks com o cluster em EC2
+
+Nesta etapa, assim como foi feito durante a criação do cluster ECS com Fargate, criaremos a definição da Task.
+Para isso, acessar o menu ECS e acessar Task Definitions. Clicar em Create new task definition e em seguida selecionar a infraestrutura com EC2.
+
+Escolher o nome da task, pode-se aqui também reutilizar a Role criada anteriormente, e em Network Mode podemos utilizar Bridge.
+
+Adicionar agora um container para esta task, dando um nome a ele, e na Image, copiar a URI da imagem criada anteriormente no Amazon ECR. Com a imagem que que definimos, pode-se usar um Soft Limit de memória de 256. No Port Mappings, deixar o Host Port vazio para que seja possível habilitar o Load Balancer, e em Container Port definir 3000 que é a porta utilizada pela aplicação.
+
+Com essas informações preenchidas já será possível criar a Task, então selecione a opção para criar.
+
+Essa task pode ser rodada sem a necessidade da criação de um Service. Vamos rodar a Task para testá-la por hora.
+
+#### Rodando a Task
+
+Acessando o item de Task Definitions dentro do menu de ECS, selecione o checkbox da task criada anteriormente, e nas actions selecione Run Task.
+
+Selecione o Launch Type como EC2 (Fargate já foi testado Getting Started), selecione o Cluster já criado anteriormente e já pode clicar na opção Run Task.
+
+Após a Task iniciar, para verificar se ela está executando com sucesso, clique para ver os detalhes desta Task criada, e na seção de Containers, expanda o item do container criado e acesse o External Link. Este link num primeiro momento não vestará acessível pois a regra do Security Group criado permite apenas acesso à porta 80.
+
+Acesse o item Security Groups dentro do menu EC2, e no Security Group criado para esta nossa VPC (terá descrição EC2ContainerService-<nome_do_cluster_ecs_criado>-...), adicione uma Inboud Rule para All TCPs vindo do IP de sua máquina apenas para realizar os testes. Após isso, a task já estará acessível e poderá ser testada.
+
+#### Gerenciando a Task via CLI
+
+Para visualizar a Task criada via CLI, utilizar o comando:
+
+`aws ecs list-tasks --cluster <nome_do_cluster>`
+
+Para parar a task, utilizar o comando:
+
+`aws ecs stop-task --task <id_da_task> --cluster <nome_do_cluster>`
+
+Ao executar o comando de `stop-task`, verificar se a task realmente foi parada com o comando de `list-tasks`.
+
+Para visualizar as Tasks Definitions criadas anteriormente, execute o comando abaixo:
+
+`aws ecs list-task-definitions`
+
+Repare que as Tasks Definitions não estão associadas a nenhum cluster, elas são independentes, e por isso o comando não necessita do nome do cluster.
+
+Para rodar novamente a Task anterior dentro do cluster criado:
+
+`aws ecs run-task --cluster <nome_do_cluster> --task-definition <nome_task_definition>`
+
+Para validar se a Task está executando, executar novamente o comando de `list-tasks`.
+
+E para se executar várias tasks ao mesmo tempo, basta adicionar o parâmetro `count` no comando de `run-task`. Adicione mais 3 tasks conforme abaixo:
+
+`aws ecs run-task --cluster <nome_do_cluster> --task-definition <nome_task_definition> --count 3`
+
+ 
