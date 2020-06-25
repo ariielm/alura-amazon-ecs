@@ -111,7 +111,7 @@ Escolher o nome do cluster conforme desejado no campo Cluster name;
 - Número de instâncias no cluster;
 - A imagem a ser utilizada (de preferência a mais atual);
 - O espaço em disco (atualmente o mínimo é de 30GiB);
-- Selecionar o Key pair a ser usado caso seja necessário executar SSH nas instâncias que serão criadas;
+- Selecionar o Key pair a ser usado caso seja necessário executar SSH nas instâncias que serão criadas.
 
 #### Networking
 
@@ -127,10 +127,10 @@ Agora basta selecionar Create para criar toda o ECS cluster com as instâncias E
 
 Para analisar se toda a infraestrutura foi criada corretamente, acesse o menu EC2. Em seguida, acessar:
 
-- Volumes para verificar se os volumes foram criados corretamente (dois volumes para cada instância: um para o SO e outro disponível para a instância utilizar);
+- Volumes para verificar se os volumes foram criados corretamente;
 - Running instances para verificar se a quantidade de instâncias foi criada corretamente.
 
-Em seguida, já é possível também testar se o cluster está escalonando corretamente. Para fazer esse teste, acesse as Running Instances e termine uma das instâncias, automaticamente, após alguns segundos, uma nova instâncias iniciará para atender o cluster corretamente. Isso tudo está ocorrendo pois durante a criação do cluster, a Amazon automaticamente criou um Auto Scaling Group que irá gerenciar este cluster.
+Em seguida, já é possível também testar se o cluster está escalonando corretamente. Para fazer esse teste, acesse as Running Instances e termine uma das instâncias. Automaticamente, após alguns segundos, uma nova instância iniciará para atender o cluster corretamente. Isso tudo está ocorrendo pois durante a criação do cluster, a Amazon automaticamente criou um Auto Scaling Group que irá gerenciar este cluster.
 
 Para verificar o Auto Scaling Group, acesse o menu EC2 e em seguinda no menu lateral acessar o Auto Scaling Groups. Então será possível ver a definição da quantidade de instância desejada, em execução, e também aqui é possível escalar o cluster com mais instâncias conforme necessário.
 
@@ -147,3 +147,62 @@ Em seguida, basta utilizar a opção `set-desired-capacity` com a quantidade de 
 `aws autoscaling set-desired-capacity --auto-scaling-group-name <name> --desired-capacity 2` 
 
 Pronto, basta acessar o AWS Console e verificar se a quantidade de instâncias está sendo atendida através das Running Instances do EC2.
+
+## Amazon ECR - Elastic Container Registry
+
+Amazon Elastic Container Registry (ECR) é um registry de containers que possibilita ao desenvolvedor ter um simples armazenamento, gerenciamento e entrega de imagens de container.
+
+---
+
+#### Precificação
+
+O armazenamento custa 0,10 USD por GB/mês
+
+Como parte do nível gratuito da AWS, você pode começar a usar o Amazon Elastic Container Registry gratuitamente. O Amazon ECR oferece aos novos clientes 500 MB por mês de armazenamento durante um ano.
+
+---
+
+A partir deste momento, utilizaremos o Amazon ECR para armazenar a imagem que será utilizada durante os testes.
+
+A imagem utilizada será: https://hub.docker.com/r/rmerces/api-monolitica/
+
+A imagem contém uma simples aplicação REST que tem os serviços de `/api/users`, `/api/threads` e `/api/posts`. Para mais informações, acessar o dockerhub acima.
+
+#### Criando o registry
+
+Para criar o registry, acessar o Amazon ECR e clicar no botão de criação de um novo registry. No momento da criação é necessário somente preencher o nome do repositório.
+Neste caso, utilizar o mesmo nome da aplicação que será utilizada no teste `api-monolitica`.
+
+Em seguida, na tela dos repositórios do ECR, no canto superior direito é possível ver um botão `View push commands` que ensinará como se fazer o push da imagem desejada no repositório criado. Vamos utilizar alguns destes passos a seguir.
+
+Primeiramente, utilizar o comando de login no Amazon ECR através do comando fornecido no tutorial da Amazon.
+
+`aws ecr get-login-password --region sa-east-1 | docker login --username AWS --password-stdin <seu_id>.dkr.ecr.<zona>.amazonaws.com`
+
+Depois disso, baixar a imagem do dockerhub que está sendo utilizada nesse exemplo.
+
+`docker pull rmerces/api-monolitica`
+
+Gerar a tag da imagem conforme documentação da Amazon, porém, não se esqueça de adicionar o nome da imagem local correamente.
+
+`docker tag rmerces/api-monolitica:latest <seu_id>.dkr.ecr.<zona>.amazonaws.com/api-monolitica:latest`
+
+E após já possuir a tag gerada, realizar o push conforme a documentação.
+
+`docker push <seu_id>.dkr.ecr.<zona>.amazonaws.com/api-monolitica:latest`
+
+Com estes passos realizados, a imagem já estará publicada na AWS, basta acessar o repositório para visualizar a imagem.
+
+#### Repository lifecycle policy
+
+Para manter um bom gerenciamento de todas as imagens geradas e dando atenção ao custo envolvido, a Amazon providencia um mecanismo de gerenciamento automático das imagens.
+
+Acessando o item de Lifecycle policy no menu lateral, é possível criar regras para que algumas imagens sejam excluídas conforme a regra que o usuário criar.
+
+Clicando no botão `Create rule`, após preencher os dados de identificação da regra, por exemplo, é possível criar uma regra que mantenha somente as duas últimas imagens de development, preenchendo:
+
+* Tag prefixes: dev
+* Match criteria: Image count more than : 2
+
+Com isso, imagens que tenham o prefixo `dev` e tenha mais que duas imagens, quando a regra for executada, as imagens mais antigas serão excluídas automaticamente. Simples e muito prático.
+
