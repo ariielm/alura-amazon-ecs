@@ -108,7 +108,7 @@ Escolher o nome do cluster conforme desejado no campo Cluster name;
 #### Instance configuration
 
 - Para o teste, utilizar On-Demand Instance para evitar falhas não desejadas;
-- Escolher o EC2 instance type (para fins de teste, t2.micro que faz parte do plano gratuito atende muito bem);
+- Escolher o EC2 instance type (para fins de teste, **t2.micro** que faz parte do plano gratuito atende muito bem);
 - Número de instâncias no cluster;
 - A imagem a ser utilizada (de preferência a mais atual);
 - O espaço em disco (atualmente o mínimo é de 30GiB);
@@ -253,5 +253,79 @@ Para validar se a Task está executando, executar novamente o comando de `list-t
 E para se executar várias tasks ao mesmo tempo, basta adicionar o parâmetro `count` no comando de `run-task`. Adicione mais 3 tasks conforme abaixo:
 
 `aws ecs run-task --cluster <nome_do_cluster> --task-definition <nome_task_definition> --count 3`
+
+## Criando um Service
+
+Para ter o gerenciamento correto das tasks, assim como aprendemos anteriormente, é utilizado o Service. Então neste passo vamos criar um Service fazer o gerenciamento das Tasks.
+
+Para criar o Service, acesse o cluster criado. Em seguida na aba Service, clicar no botão de criação de Service.
+
+#### Configure service
+
+* Launch Type: Utilizar EC2 para utilizarmos as instâncias EC2 deste cluster;
+* Task Definition: Selecionar a Task Definition criada anteriormente;
+* Cluster: utilizar o cluster criado com as instâncias EC2;
+* Service name: o nome desejado do Service;
+* Service type: selecionar Replica;
+* Number of tasks: utilizaremos 2;
+* Minimun/Maximun Percent: deixar o padrão (porcentagem de disponibilidade durante delivery);
+* Deployment Type: selecionar o desejado;
+* Placement Templates: pode ser usado custom (estratégia usada para decidir em qual instância EC2 cada novo container irá subir ou cair).
+
+#### Configure network
+
+* Health check grace period: tempo em que o loadbalancer deve esperar para realizar o healthcheck após a task iniciar;
+
+##### Load balancing
+
+Aqui será necessário criar um Load Balancer para atender a aplicação:
+
+* Load balancer type: Selecionar Application Load Balancer;
+* Service IAM role: utilizar a IAM já criada;
+* Load balancer name: neste campo será necessário a criação de um novo Load Balancer, basta selecionar o link fornecido abaixo. Criaremos numa nova aba este Load Balancer e retornaremos, siga os passos abaixo:
+
+---
+
+#### Create Load Balancer
+
+* Load balancer type: Application Load Balancer - HTTP/HTTPS é o que desejamos para a nossa aplicação;
+* Name: utilizar o nome desejado (ex: lb-api-monolitica);
+* Scheme: internet-facing pois é um lb exposto à internet;
+* IP address type: ipv4 atende;
+* Listeners: um listener http atenderá a aplicação de exemplo;
+* Availability Zones: selecionar a VPC e suas subnets para que seja balanceado para todas as subnets;
+* Assign a security group: selecione o SG criado para nosso cluster ECS;
+* Target group: Criar um novo grupo, para esta aplicação pode deixar tudo com valores default, mas é neste passo que poderia ser inserido o path do health-check da aplicação;
+
+Em seguida pular as próximas etapas e finalizar a criação do Load Balancer. Após isso, retornar para a criação do Service para nossa aplicação.
+
+---
+
+* Load balancer name: utilizando o botão refresh já será possível selecionar o load balancer criado, selecione-o;
+* Container to load balance: Adicione o nosso container a esta lista;
+* Production listener port: selecione o listener que foi criado no load balancer 80:HTTP;
+* Target group name: selecione o group criado no load balancer;
+
+Agora basta seguir até o fim e finalizar a criação do Service.
+
+Com o Service criado, irá ser criado com ele 2 Tasks automaticamente, estas são as Tasks que foram definidas para que o Service gerenciasse, portanto, iniciarão assim que o Service for criado.
+
+Para acessar agora as Tasks que são gerenciadas por este Service, acessaremos o Load Balancer que foi criado, porém, neste momento, o Load Balancer não tem um Security Group associado a ele que o permita enviar a requisição que recebeu para os containers que associamos a ele.
+
+### Ajustando o Security Group
+
+Então neste momento vamos adicionar as regras ao Security Group para que ele consiga enviar essas requests aos containers.
+
+Acesse o menu de Security Groups no EC2, selecione o SG criado para o cluster ECS. Adicionaremos duas Inboud Rules a ele, que serão para as duas Subnets que foram criadas na VPC utilizada pelo cluster ECS.
+
+Então neste momento, acesse no menu do VPC as Subnets que foram criadas para a VPC do cluster ECS, e copie o IPv4 CIDR das duas.
+
+Volte às Inbound Rules do Security Group, e adicione duas Inbound Rules recebendo All TCP e cada uma para o IP de cada uma das duas subnets (algo como: 10.0.0.0/24 e 10.0.1.0/24).
+
+Pronto, neste momento a aplicação já será acessível, basta acessar o DNS fornecido pelo Load Balancer! 
+
+
+
+
 
  
