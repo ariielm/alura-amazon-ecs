@@ -203,9 +203,14 @@ Clicando no botão `Create rule`, após preencher os dados de identificação da
 
 Com isso, imagens que tenham o prefixo `dev` e tenha mais que duas imagens, quando a regra for executada, as imagens mais antigas serão excluídas automaticamente. Simples e muito prático.
 
-## Criando as tasks com o cluster em EC2
+## Criando as tasks no cluster ECS com EC2
 
-Nesta etapa, assim como foi feito durante a criação do cluster ECS com Fargate, criaremos a definição da Task.
+Vamos neste momento entregar a aplicação monolítica acima, ficando com a arquitetura desta forma:
+
+![Monolithic Application Architecture](images/architecture-monolithic.png)
+
+Nesta etapa, assim como foi feito durante a criação do cluster ECS com Fargate, criaremos a definição da Task. 
+
 Para isso, acessar o menu ECS e acessar Task Definitions. Clicar em Create new task definition e em seguida selecionar a infraestrutura com EC2.
 
 Escolher o nome da task, pode-se aqui também reutilizar a Role criada anteriormente, e em Network Mode podemos utilizar Bridge.
@@ -324,8 +329,143 @@ Volte às Inbound Rules do Security Group, e adicione duas Inbound Rules receben
 
 Pronto, neste momento a aplicação já será acessível, basta acessar o DNS fornecido pelo Load Balancer! 
 
+## Entregando no ECS uma arquitetura de microsserviços
 
+Agora que temos toda a arquitetura entregue e rodando com uma aplicação monolítica, que tal simularmos um ambiente com várias aplicações, como numa arquitetura de microsserviços? Faremos isso agora.
 
+De forma resumida, cada um dos três paths da aplicação anterior `/api/users`, `/api/threads` e `/api/posts` será uma aplicação diferente. Ficando a arquitetura a partir deste momento desta forma:
 
+![Microservice Application Architecture](images/architecture-microservice.png)
 
+### Adicionando as imagens ao ECR
+
+Primeiramente vamos adicionar estas imagens ao ECR. Faça o pull das imagens:
+
+`docker pull rmerces/api-users`
+
+`docker pull rmerces/api-threads`
+
+`docker pull rmerces/api-posts`
+
+Em seguida, crie três repositórios no ECR, um para cada uma das imagens, e para cada repositório criado, execute o push de sua respectiva imagem com os comandos que o ECR exibe ao acessar o repositório da imagem, não se esquecendo de que não é necessário realizar o build da imagem e também de adicionar o `rmerces` no momento de gerar a `tag` (`login`, `tag` e `push`).
+Exemplo:
+
+`docker tag rmerces/api-users:latest <id_repositorio>.dkr.ecr.<zona>.amazonaws.com/api-users:latest`
+
+`docker push <id_repositorio>.dkr.ecr.<zona>.amazonaws.com/api-users:latest`
+
+### Criando as Tasks Definitions
+
+Vamos criar as Tasks Definitions para que seja possível subir estas imagens ao cluster ECS utilizando os Services para gerenciá-las.
+
+Acesse o menu ECS e entre na seção de Task Definitions. Clique para criar uma nova Task Definition e selecione o Launch Type como EC2.
+
+Preencha o formulário como a seguir:
+
+* Task Definition Name: pode utilizar o mesmo nome da imagem;
+* Task Role: a mesma Role utilizada anteriormente criada junto com o cluster ECS;
+* Network M<ode: Bridge;
+* Add container: adicione um container. Adicione o mesmo nome da imagem para facilitar e no campo Image, copie a URI do repositório ECR da imagem criada anteriormente. Selecione Soft Limit de 256 e nos Port Mappings deixe o Host Port em branco (porta dinâmica) e coloque o Container Port como 3000.
+
+Depois disso já é possível realizar a criação, porém, antes disso, no fim do formulário há o botão *Configure via JSON*. Este JSON já contém toda a nossa Task Definition no formato JSON. Copie esse JSON para facilitar a criação das próximas tasks, onde será necessário apenas dar replace nos nomes de `api-users` para `api-threads` ou `api-posts`. 
+
+Então, crie as duas próximas Tasks Definitions através do JSON copiado anteriormente e substituindo os nomes.
+
+### Testando as Tasks Definitions
+
+Com todas as Tasks Definitions criadas, vamos testá-las para ver se está tudo ok.
+
+Acesse o cluster ECS criado. Selecione a aba Tasks e clique em Run new Task.
+
+* Launch Type: EC2
+* Task Definition: a task que irá testar
+
+Finalize a criação.
+
+Observe que na aba de Tasks dentro do cluster ECS, a coluna Started By, diferentemente de quando a Task é gerenciada por um Service, ela estará vazia.
+
+Clique na Task, e dentro dela, expanda o container criado e tente acessar o External Link gerado. Caso não consiga acessar, verifique se o Security Group do cluster ECS possui uma Inbound Rule liberada para All TCPs vindo de seu IP, se não houver, crie e já será possível acessar o container.
+
+Faça estes passos para todas as Tasks Definitions criadas para testá-las.
+
+Depois de testá-las, pode deletar cada uma destas Tasks.
+
+### Ajustando o Load Balancer
+
+Para atender a aplicação como desejado, ou seja, direcionar `/api/users`, `/api/threads` e `/api/posts` cada um para uma task, configuraremos o Load Balancer para isso.
+
+Então, acessando o menu EC2, entre no item de Load Balancer e clique para criar um novo.
+
+* Selecione a opção de HTTP/HTTPS;
+* Dê o nome desejado (lb-api-microservicos);
+* Selecione a VPC criada para o cluster ECS;
+* Selecione as subnets da VPC;
+* Siga com os próximos passos até o passo de Configure Security Groups, nele, selecione o Security Group que foi criado para o cluster ECS;
+* No próximo passo, crie um New target group para a aplicação api-users. Basta preenche com este nome e seguir para o próximo passo;
+* Finalize a criação.
+
+Com o Load Balancer criado, no menu lateral logo abaixo do Load Balancers, acesse o item Target Groups. Aqui iremos criar os dois Target Groups para api-threads e api-posts. Crie os dois com estes mesmos nomes e apenas selecione a VPC do Cluster ECS, as demais configurações permanecem no padrão.
+
+Depois de ter criado os Target Groups, vá até o Load Balancer criado, acesse a aba Listeners, e no Listener HTTP:80 clique em View/Edit Rules.
+
+Adicione agora três regras, cada uma para atender sua respectiva Tasks conforme abaixo:
+
+* Path: `/api/users`, `/api/threads` e `/api/posts`;
+* Forward to: `api-users`, `api-threads` e `api-posts`.
+
+### Criado o Service para as Tasks do microsserviço
+
+Agora apenas falta criar o Service para que ele gerencie as Tasks.
+
+Acesse o menu ECS e selecione o cluster criado. Na aba de Services vamos criar os **três** Services para cada uma das Tasks.
+
+* Launch Type: EC2;
+* Task definition: a Task Definition para sua devida Task;
+* Service name: pode ser o mesmo que o nome da Task;
+* Number of tasks: 2 é o suficiente;
+* Load Balancing Type: na próxima etapa, selecione Application Load Balancer;
+* ServiceIAMRole: a role já criada para o ECS;
+* Load Balancer Name: selecione aqui o Load Balancer que criamos no passo anterior;
+* Container : port: adicione aqui o container ao Load Balancer;
+* Production listener port: Selecione HTTP:80;
+* Target group name: selecione o Target Group corresponde.
+
+Pode finalizar a criação, e agora a Service será criada e irá subir e gerenciar as Tasks com os containers que configuramos. Não se esqueça, repita essa criação para cada uma das três Tasks.
+
+Após a criação dos três Services, não será possível que o todas as Tasks executem, pois ocorrerá falta de memória. Para evidenciar isso, acesse o Service que não tem as Tasks atendidas e vá na aba Events. Nesta aba terá a descrição  do evento de falta de memória ocorrendo.
+
+Para liberar memória, vamos deletar a api-monolitica. Acesse o Service da api-monolitica nesse momento e altere o Number of Tasks para zero. Isso irá liberar memória para que as Tasks faltantes venham subir. *PS: Verifique se as Tasks da api-monolitica irão cair, senão cair automaticamente, acesse elas e dê o Stop.*
+
+### Testando toda a arquitetura
+
+Com as Tasks, Tasks Definitions, Services e Load Balancer criados e configurados, agora vamos testar essa arquitetura.
+
+Acesse o Load Balancer criado para esta arquitetura e copie o DNS gerado. Acesse o DNS do Load Balancer e então, valide cada um dos três cenários:
+
+* `/api/users`
+* `/api/threads`
+* `/api/posts`
  
+O Load Balancer deverá receber a request e baseado no path, deverá redirecionar para sua respectiva Task que rodará o container que conseguirá responder essa request, caso haja redirect para um das Tasks indevidas, ocorrerá um `404 NOT FOUND`.
+
+Se os três paths responderem corretamente, pronto! Toda a arquitetura está funcionando perfeitamente.
+
+## Conclusão
+
+Aprendemos então primeiramente a definição dos conceitos de Container Definition, Task Definition, Service e Cluster.
+
+Depois disso fizemos o deploy de uma aplicação monolítica dentro de um cluster ECS.
+
+Aprendemos nesta etapa também, a criação e gerenciamento de imagens Docker através do ECR.
+
+E como último passo, criamos a arquitetura para atender a antiga aplicação monolítica que agora foi separada em três diferentes aplicações, utilizando três imagens diferentes e o Load Balancer fazendo o devido redirecionamento.
+
+## Limpando o ambiente
+
+Agora como último e muito importante passo, vamos limpar tudo o que criamos.
+
+1. No menu EC2 acesse o item de Load Balancers e delete-os;
+2. Acesse os clusters criados, e dentro deles, clique para deletar;
+3. Finalmente, acesse o menu ECR e delete os repositórios.
+
+Pronto, tudo finalizado com sucesso!
